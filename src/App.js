@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Container, Button, Table, TableHead, TableBody, TableRow, TableCell } from "@material-ui/core";
+import { Container, Button, Table, TableHead, TableBody, TableRow, TableCell } from "@mui/material";
 import axios from "axios";
 import ProfileModal from "./ProfileModal";
 import BookingModal from "./BookingModal";

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, TextField, Button } from '@material-ui/core';
+import { Modal, TextField, Button } from "@mui/material";
 
 const NotificationModal = ({ open, onClose, notification, formData, onChange, onSave, isNew }) => {
   return (
