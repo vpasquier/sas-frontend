@@ -3,7 +3,12 @@ name: Deploy to ECR
 on:
   push:
     branches: [main]
-  workflow_dispatch: # Allows manual triggering of the workflow
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag for the release"
+        required: true
+        default: "v0.0.1"
 
 permissions:
   id-token: write
@@ -14,7 +19,8 @@ env:
   ECR_REGISTRY: 503561419437.dkr.ecr.us-east-1.amazonaws.com
   ECR_REPOSITORY: sas-dev-ecr-repository
   AWS_REGION: us-east-1
-  ECR_ROLE_ARN: arn:aws:iam::503561419437:role/ecr-deploy-github-action
+  ROLE_ARN: arn:aws:iam::503561419437:role/ecr-deploy-github-action
+  IMAGE_NAME: sas-frontend
 
 jobs:
   deploy-ecr-dev:
@@ -25,7 +31,6 @@ jobs:
       name: dev
     env:
       ENVIRONMENT: dev
-      ROLE_ARN: arn:aws:iam::952219337142:role/github-actions
       ECS_CLUSTER: "sas-dev"
     steps:
       - name: Git clone the repository
@@ -38,23 +43,22 @@ jobs:
           role-session-name: sas-github-frontend-deployment
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build, tag and push image to Amazon ECR
+      - name: Build, tag, and push image to Amazon ECR
         working-directory: ./
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
-          docker build \
-            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
-            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest \
-            --build-arg COMMIT_SHA=${{ github.sha }} -f dockerfile .
 
-          # Push github.sha tag first so all layers are in repo
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          # Build the Docker image with the IMAGE_NAME only
+          docker build -t ${{ env.IMAGE_NAME }} -f Dockerfile .
 
-          # delete latest image if exists before pushing latest tag
-          aws ecr batch-delete-image --repository-name ${{ env.ECR_REPOSITORY }} --image-ids imageTag=latest || true
+          # Tag the image with the full registry and repository
+          docker tag ${{ env.IMAGE_NAME }}:latest ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_NAME }}-latest
 
-          # Push latest tag
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          # Delete the latest image tag if it exists before pushing
+          aws ecr batch-delete-image --repository-name ${{ env.ECR_REPOSITORY }} --image-ids imageTag=${{ env.IMAGE_NAME }}-latest || true
+
+          # Push the latest tag
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_NAME }}-latest
 
       - name: Update ECS task definition
         run: |
@@ -75,7 +79,7 @@ jobs:
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.ECR_ROLE_ARN }}
+          role-to-assume: ${{ env.ROLE_ARN }}
           role-session-name: github-actions-release
           aws-region: ${{ env.AWS_REGION }}
 
@@ -84,12 +88,15 @@ jobs:
           git tag ${{ github.event.inputs.tag }}
           git push origin ${{ github.event.inputs.tag }}
 
-      - name: Build, tag and push image to Amazon ECR
+      - name: Build, tag, and push image to Amazon ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
-          docker build \
-            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.event.inputs.tag }} \
-            --build-arg COMMIT_SHA=${{ github.sha }} -f dockerfile .
+
+          # Build the Docker image with the IMAGE_NAME only
+          docker build -t ${{ env.IMAGE_NAME }} -f Dockerfile .
+
+          # Tag the image with the full registry and repository using the input tag
+          docker tag ${{ env.IMAGE_NAME }}:latest ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_NAME }}-${{ github.event.inputs.tag }}
 
           # Push the tagged image
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.event.inputs.tag }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_NAME }}-${{ github.event.inputs.tag }}
